@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="cornels-version" content="0.2.0">
+<title>CORNELS AI</title>
+<style>
+:root{--bg:#0f1115;--card:#181b22;--tx:#e8eaf0;--mu:#8b92a5;--ac:#6c8cff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px system-ui,sans-serif;height:100vh;display:flex;flex-direction:column}
+header{padding:14px 16px 6px}h1{margin:0;font-size:20px}header p{margin:2px 0 0;color:var(--mu);font-size:13px}
+nav{display:flex;gap:6px;padding:8px 12px}
+nav button{flex:1;padding:9px 4px;border:0;border-radius:10px;background:var(--card);color:var(--mu);font-size:13px}
+nav button.on{background:var(--ac);color:#fff}
+.tab{display:none;flex:1;min-height:0;overflow:auto;padding:8px 14px 14px}.tab.on{display:flex;flex-direction:column}
+.card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:10px}
+.mu{color:var(--mu);font-size:13px}
+input,textarea{width:100%;background:#0f1115;color:var(--tx);border:1px solid #2a2f3a;border-radius:10px;padding:10px;font:inherit;margin:4px 0}
+textarea{font-family:ui-monospace,monospace;font-size:13px}
+button.b{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:10px 14px;font:inherit;margin:4px 4px 4px 0}
+button.b.s{background:#2a2f3a}button.b:disabled{opacity:.5}
+.row{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:6px 0;border-bottom:1px solid #232733}
+#msgs{flex:1;overflow:auto;display:flex;flex-direction:column;gap:8px;padding-bottom:8px}
+.m{max-width:88%;padding:9px 12px;border-radius:14px;white-space:pre-wrap;word-wrap:break-word}
+.m.user{align-self:flex-end;background:var(--ac)}.m.ai{align-self:flex-start;background:var(--card)}
+#bar{display:flex;gap:6px}#bar input{margin:0}
+progress{width:100%}
+</style></head><body>
+<header><h1>CORNELS AI</h1><p>Inteligencia artificial independiente</p></header>
+<nav>
+ <button class="on" data-t="chat">Chat</button><button data-t="modelo">Modelo</button>
+ <button data-t="editor">Editor</button><button data-t="version">Versión</button>
+</nav>
+
+<section id="chat" class="tab on">
+ <div id="msgs"><div class="m ai">Hola. Carga un modelo en la pestaña Modelo y empezamos.</div></div>
+ <div id="bar"><input id="inp" placeholder="Escribe un mensaje..."><button class="b" id="send">Enviar</button></div>
+</section>
+
+<section id="modelo" class="tab">
+ <div class="card"><b>Estado</b><p id="estado" class="mu">...</p></div>
+ <div class="card"><b>Modelos instalados</b><div id="lista"></div></div>
+ <div class="card"><b>Añadir modelo (.task)</b>
+  <input id="url" placeholder="https://... enlace directo al modelo">
+  <input id="nom" placeholder="nombre.task">
+  <button class="b" id="bdesc">Descargar</button><button class="b s" id="bimp">Importar archivo</button>
+  <progress id="prog" value="0" max="100" hidden></progress><p id="msg" class="mu"></p>
+ </div>
+</section>
+
+<section id="editor" class="tab">
+ <div class="card mu">Escribe o pega código y pídele a la IA que lo revise.</div>
+ <textarea id="code" rows="14" placeholder="// tu código"></textarea>
+ <div><button class="b" id="brev">Revisar con la IA</button></div>
+</section>
+
+<section id="version" class="tab">
+ <div class="card"><b>Versiones</b>
+  <p class="mu">App (nativa): <span id="vN">-</span><br>Interfaz (HTML): <span id="vH">-</span></p></div>
+ <div class="card"><b>Cómo actualizar</b>
+  <p class="mu">Toca el botón ⋮ (arriba a la derecha) → Introducir HTML o Importar archivo. El HTML nuevo reemplaza a este. Si algo falla: ⋮ → Restaurar original.</p></div>
+</section>
+
+<div id="nonative" hidden style="padding:14px;color:#f88">Abierto fuera de la app: las funciones nativas no están disponibles.</div>
+
+<script>
+const N = window.Cornels, $ = id => document.getElementById(id);
+let hist = [], busy = false, cur = null;
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => tab(b.dataset.t));
+function tab(n){
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === n));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.id === n));
+  if (n === 'modelo' || n === 'version') refresh();
+}
+function refresh(){
+  if (!N) { $('nonative').hidden = false; return; }
+  $('vN').textContent = N.versionNativa(); $('vH').textContent = N.versionHtml();
+  const st = JSON.parse(N.estado());
+  $('estado').textContent = st.cargado ? 'Cargado: ' + st.nombre : 'Sin modelo cargado';
+  const ms = JSON.parse(N.listarModelos()), L = $('lista');
+  L.innerHTML = ms.length ? '' : '<p class="mu">No hay modelos instalados.</p>';
+  ms.forEach(m => {
+    const r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = '<span>' + esc(m.nombre) + ' · ' + m.mb + ' MB</span><span></span>';
+    const c = document.createElement('button'); c.className = 'b'; c.textContent = 'Cargar';
+    c.onclick = () => N.cargarModelo(m.nombre);
+    const d = document.createElement('button'); d.className = 'b s'; d.textContent = 'Borrar';
+    d.onclick = () => { if (confirm('¿Borrar ' + m.nombre + '?')) N.borrarModelo(m.nombre); };
+    r.lastChild.append(c, d); L.append(r);
+  });
+}
+$('bdesc').onclick = () => {
+  if (!$('url').value.trim()) return;
+  const n = $('nom').value.trim() || 'modelo.task';
+  $('prog').hidden = false; $('prog').value = 0; $('msg').textContent = 'Descargando...';
+  N.descargarModelo($('url').value.trim(), n);
+};
+$('bimp').onclick = () => N.importarModelo();
+window.onDescarga = p => { $('prog').value = p; };
+window.onModelo = (e, m) => {
+  $('msg').textContent = ({cargando:'Cargando ' + m + '...', listo:'Modelo listo: ' + m,
+    descargado:'Instalado: ' + m, borrado:'Borrado: ' + m, error:'Error: ' + m})[e] || m;
+  if (e !== 'cargando') { $('prog').hidden = true; refresh(); }
+};
+
+function bubble(cls, t){
+  const d = document.createElement('div'); d.className = 'm ' + cls; d.textContent = t;
+  $('msgs').append(d); $('msgs').scrollTop = 1e9; return d;
+}
+function send(){
+  const t = $('inp').value.trim(); if (!t || busy) return;
+  if (!N || !JSON.parse(N.estado()).cargado) { alert('Carga un modelo primero (pestaña Modelo)'); return; }
+  $('inp').value = ''; bubble('user', t); hist.push({r:'user', t});
+  cur = bubble('ai', ''); busy = true; $('send').disabled = true;
+  let p = '<|im_start|>system\nEres CORNELS AI, un asistente útil. Responde en español.<|im_end|>\n';
+  hist.slice(-8).forEach(m => p += '<|im_start|>' + (m.r === 'user' ? 'user' : 'assistant') + '\n' + m.t + '<|im_end|>\n');
+  N.generar(p + '<|im_start|>assistant\n');
+}
+window.onToken = (s, done) => {
+  if (!cur) return;
+  cur.textContent += s; $('msgs').scrollTop = 1e9;
+  if (done) { hist.push({r:'ai', t:cur.textContent}); cur = null; busy = false; $('send').disabled = false; }
+};
+window.onError = m => { if (cur) cur.textContent = 'Error: ' + m; cur = null; busy = false; $('send').disabled = false; };
+$('send').onclick = send;
+$('inp').onkeydown = e => { if (e.key === 'Enter') send(); };
+$('brev').onclick = () => {
+  const c = $('code').value.trim(); if (!c) return;
+  $('inp').value = 'Revisa este código y dime qué mejorarías:\n' + c; tab('chat'); send();
+};
+refresh();
+</script></body></html>
